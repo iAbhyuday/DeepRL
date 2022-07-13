@@ -2,11 +2,14 @@ import torch
 
 class RolloutBuffer(object):
 
-    def __init__(self, max_size=8000,num_workers=4,observation_shape=None, action_shape=None) -> None:
+    def __init__(self, max_size=8000, observation_shape=None, action_shape=None,device=None, **kwargs): -> None:
+        
         self.time_steps = max_size 
         self.num_workers = num_workers 
         self.observation_shape = observation_shape 
-        self.action_shape = action_shape
+        self.action_shape = action_shape   
+        self.is_gae = gae 
+
         
         self.clear() 
 
@@ -14,21 +17,28 @@ class RolloutBuffer(object):
 
         gae = 0.0 
         delta = 0.0
-        for t in reversed(range(self.time_steps)):
-            
-            if t==self.time_steps-1:
-                delta = self.rewards[t] + gamma * next_done * next_value - self.values[t]
-                gae = delta + gamma * lambda_ * next_done * gae
-            else:
+        if self.i_gae:
+            for t in reversed(range(self.time_steps)):
 
-                delta = self.rewards[t] + gamma* self.dones[t+1]*self.values[t+1] - self.values[t] 
+                if t==self.time_steps-1:
+                    delta = self.rewards[t] + gamma * next_done * next_value - self.values[t]
+                    gae = delta + gamma * lambda_ * next_done * gae
+                else:
 
-                gae = delta + gamma * lambda_ * self.dones[t+1] * gae 
+                    delta = self.rewards[t] + gamma* self.dones[t+1]*self.values[t+1] - self.values[t] 
+
+                    gae = delta + gamma * lambda_ * self.dones[t+1] * gae 
+
+                self.gae[t] = gae 
         
-            self.gae[t] = gae 
-        
-        self.returns = self.gae + self.values 
-        #self.gae = (self.gae - self.gae.mean())/(self.gae.std() + 1e-5) 
+            self.returns = self.gae + self.values 
+            #self.gae = (self.gae - self.gae.mean())/(self.gae.std() + 1e-5) 
+
+        else:
+            r = 0.0
+            for t in reversed(range(self.time_steps)):
+                r = self.rewards[t]  + self.gamma * self.dones[t+1] * self.valuest[t+1] - self.values[t]
+                
 
 
     def sample_minibatches(self, batch_size=None):
@@ -68,6 +78,6 @@ class RolloutBuffer(object):
         self.dones = torch.zeros((self.time_steps, self.num_workers)).to(device)
         self.values = torch.zeros((self.time_steps, self.num_workers)).to(device) 
 
-        self.gae = torch.zeros((self.time_steps, NUM_WORKERS)).to(device) 
-        self.returns = torch.zeros((self.time_steps, NUM_WORKERS)).to(device)
+        self.gae = torch.zeros((self.time_steps, self.num_workers)).to(device) 
+        self.returns = torch.zeros((self.time_steps, self.num_workers)).to(device)
 

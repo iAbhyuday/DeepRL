@@ -4,6 +4,7 @@ import torch
 import random
 import numpy as np
 import torch.nn as nn
+from rollout_buffer import RolloutBuffer
 from torch.nn.functional import mse_loss
 from collections import namedtuple, deque
 from torch.utils.tensorboard import SummaryWriter
@@ -36,7 +37,8 @@ class Agent(nn.Module):
         self.action_space = self.env.single_action_space.shape
 
         self.buffer = RolloutBuffer(
-            observation_shape=self.obs_space, action_shape=self.action_space
+            observation_shape=self.obs_space, action_shape=self.action_space, device=self.device,
+            **self.config
         )
 
         self.time_steps = 0.0
@@ -139,7 +141,7 @@ class Agent(nn.Module):
             dist = torch.distributions.Categorical(logits=logits)
             log_probs = dist.log_prob(mb_actions)
         
-        return values, log_probs
+        return values, log_probs, dist.entropy().mean()
 
     
     
@@ -174,11 +176,7 @@ class Agent(nn.Module):
                 mb_adv,
             ) in self.buffer.sample_minibatches(batch_size= self.config['batch_size']):
 
-                dist = self.actor(mb_states)
-                entropy = dist.entropy().mean()
-                new_log_probs = dist.log_prob(mb_actions)
-                new_log_probs = new_log_probs.sum(1)
-
+                new_values, new_log_probs, entropy = self.eval_actor_critic(mb_states, mb_actions)
                 new_values = self.critic_local(mb_states).squeeze(-1)
 
                 # print(f'states shape : {mb_states.shape}')
@@ -210,7 +208,7 @@ class Agent(nn.Module):
                 self.opt.step()
                 
 
-                # print(f'\r Epoch : {e}\t loss = {loss.item()}')
+            
             self.critic_update()
 
         self.writer.add_scalar(
@@ -233,15 +231,16 @@ class Agent(nn.Module):
                 self.buffer.states[t] = next_obs
                 self.buffer.dones[t] = 1 - next_done
 
-                dist = self.actor(next_obs)
+                dist, value = self.forward(next_obs)
                 action = dist.sample()
-                log_prob = dist.log_prob(action).sum(1)
-                value = self.critic_local(next_obs)
+                log_prob = dist.log_prob(action)
+            
                 value = value.flatten()
 
                 self.buffer.actions[t] = action
                 self.buffer.log_probs[t] = log_prob
                 self.buffer.values[t] = value
+
 
                 next_obs, reward, next_done, info = self.env.step(action.cpu().numpy())
                 self.buffer.rewards[t] = torch.Tensor(reward).to(self.device).view(-1)
