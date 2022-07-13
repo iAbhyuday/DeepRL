@@ -25,6 +25,8 @@ class Agent(nn.Module):
         self.tau = self.config["tau"]
         self.clip = self.config["clip"]
         self.hidden = self.config["hidden"]
+        self.decay_std_rate = self.config["action_std_decay_rate"] 
+        self.action_std_min = self.config["action_std_min"]
 
         self.device = torch.device(
             "cuda:0" if torch.cuda.is_available() and self.config["cuda"] else "cpu"
@@ -84,6 +86,7 @@ class Agent(nn.Module):
 
         if self.config["decay_std"] and self.is_continuous:
             self.action_std = self.config["action_std_max"]
+            self.set_action_var()
 
         
         self.opt = torch.optim.Adam([
@@ -93,6 +96,13 @@ class Agent(nn.Module):
 
 
 
+
+    def set_action_var(self):
+        self.action_var = torch.full((self.action_space,),self.action_std**2).to(self.device)
+
+
+
+    
     def forward(self, state: torch.Tensor, mb_actions = None):
         """
         Args:
@@ -104,13 +114,12 @@ class Agent(nn.Module):
         logits = self.actor(state) 
         value = self.critic_target(state)
         if self.is_continuous:
+            cov_mat = torch.diag(self.action_var).unsqueeze(0).to(self.device)
             dist = torch.distributions.MultivariateNormal(logits, cov_mat)
         else:
-            dist = torch.distributions.Categorical(logits)
+            dist = torch.distributions.Categorical(logits=logits)
         return dist, value
         
-
-
 
 
     def eval_actor_critic(self, mb_states: torch.Tensor, mb_actions: torch.Tensor):
@@ -120,8 +129,9 @@ class Agent(nn.Module):
 
         dist = None 
         log_probs = None
-        
+
         if self.is_continuous:
+            cov_mat = torch.diag(self.action_var).unsqueeze(0).to(self.device)
             dist = torch.distributions.MultivariateNormal(logits, cov_mat)
             log_probs = dist.log_prob(mb_actions)
             
@@ -130,11 +140,15 @@ class Agent(nn.Module):
             log_probs = dist.log_prob(mb_actions)
         
         return values, log_probs
-        
-        
 
-         
-
+    
+    
+    def decay_std(self):
+        self.std = self.std - self.decay_std_rate
+        if(self.std <= self.action_std_min):
+            self.std = self.action_std_min
+        self.set_action_var()
+    
 
 
     def critic_update(self):
@@ -205,6 +219,8 @@ class Agent(nn.Module):
         self.writer.add_scalar("losses/actor_loss", actor_loss.item(), self.time_steps)
         self.writer.add_scalar("losses/loss", loss.item(), self.time_steps)
 
+    
+    
     def evaluate(self):
 
         with torch.no_grad():
