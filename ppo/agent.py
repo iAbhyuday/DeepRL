@@ -24,13 +24,79 @@ class Agent(nn.Module):
         self.gamma = self.config["gamma"]
         self.tau = self.config["tau"]
         self.clip = self.config["clip"]
-        
+        self.hidden = self.config["hidden"]
+
         self.device = torch.device(
             "cuda:0" if torch.cuda.is_available() and self.config["cuda"] else "cpu"
         )
 
         self.obs_space = self.env.single_observation_space.shape
         self.action_space = self.env.single_action_space.shape
+
+        self.buffer = RolloutBuffer(
+            observation_shape=self.obs_space, action_shape=self.action_space
+        )
+
+        self.time_steps = 0.0
+        self.writer = SummaryWriter(log_dir=f"{self.config['tensorboard_dir']}/{self.config['experiment_name']}")
+
+        
+        if self.is_continuous:
+            self.actor = nn.Sequential(
+                        nn.Linear(np.array(self.obs_space).prod(),self.hidden),
+                        nn.Tanh(),
+                        nn.Linear(self.hidden,2*self.hidden),
+                        nn.Tanh(),
+                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.Tanh(),
+                        nn.Linear(self.hidden,np.array(self.action_space).prod()), 
+                        nn.Tanh()
+                        ).to(self.device)    
+
+        else:
+
+            self.actor = nn.Sequential(
+                        nn.Linear(np.array(self.obs_space).prod(),self.hidden),
+                        nn.Tanh(),
+                        nn.Linear(self.hidden,2*self.hidden),
+                        nn.Tanh(),
+                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.Tanh(),
+                        nn.Linear(self.hidden,np.array(self.action_space).prod()), 
+                        nn.Softmax()
+                        ).to(self.device)
+
+        self.critic_local = nn.Sequential(
+                        nn.Linear(np.array(self.obs_space).prod(),2*self.hidden),
+                        nn.ReLU(),
+                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.ReLU(),
+                        nn.Linear(self.hidden,1)
+                        ).to(self.device) 
+
+        self.critic_target = nn.Sequential(
+                        nn.Linear(np.array(self.obs_space).prod(),2*self.hidden),
+                        nn.ReLU(),
+                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.ReLU(),
+                        nn.Linear(self.hidden,1)
+                        ).to(self.device) 
+
+        if self.config["decay_std"] and self.is_continuous:
+            self.action_std = self.config["action_std_max"]
+
+        
+        
+
+        
+            
+
+
+        
+
+        
+
+
         
         self.actor = Actor(self.obs_space[0], self.action_space[0]).to(self.device)
         self.critic_target = Critic(self.obs_space[0]).to(self.device)
@@ -41,13 +107,8 @@ class Agent(nn.Module):
             { 'params' : self.critic_local.parameters(), 'lr' : self.config['critic_lr'], 'eps': 1e-5}
         ])
 
-        self.buffer = RolloutBuffer(
-            observation_shape=self.obs_space, action_shape=self.action_space
-        )
         
-        self.time_steps = 0.0
         
-        self.writer = SummaryWriter(log_dir=f"{self.config['tensorboard_dir']}/{self.config['experiment_name']}")
 
 
 
