@@ -86,29 +86,54 @@ class Agent(nn.Module):
             self.action_std = self.config["action_std_max"]
 
         
-        
-
-        
-            
-
-
-        
-
-        
-
-
-        
-        self.actor = Actor(self.obs_space[0], self.action_space[0]).to(self.device)
-        self.critic_target = Critic(self.obs_space[0]).to(self.device)
-        self.critic_local = Critic(self.obs_space[0]).to(self.device)
-        
         self.opt = torch.optim.Adam([
             { 'params' : self.actor.parameters(), 'lr' : self.config['actor_lr'], 'eps': 1e-5},
             { 'params' : self.critic_local.parameters(), 'lr' : self.config['critic_lr'], 'eps': 1e-5}
         ])
 
+
+
+    def forward(self, state: torch.Tensor, mb_actions = None):
+        """
+        Args:
+            state (torch.Tensor): The current state of the environment.
+
+        Returns:
+            torch.Tensor: The Q-value of the state
+        """
+        logits = self.actor(state) 
+        value = self.critic_target(state)
+        if self.is_continuous:
+            dist = torch.distributions.MultivariateNormal(logits, cov_mat)
+        else:
+            dist = torch.distributions.Categorical(logits)
+        return dist, value
+        
+
+
+
+
+    def eval_actor_critic(self, mb_states: torch.Tensor, mb_actions: torch.Tensor):
+        
+        values = self.critic_local(mb_states) 
+        logits = self.actor(mb_states) 
+
+        dist = None 
+        log_probs = None
+        
+        if self.is_continuous:
+            dist = torch.distributions.MultivariateNormal(logits, cov_mat)
+            log_probs = dist.log_prob(mb_actions)
+            
+        else:
+            dist = torch.distributions.Categorical(logits=logits)
+            log_probs = dist.log_prob(mb_actions)
+        
+        return values, log_probs
         
         
+
+         
 
 
 
