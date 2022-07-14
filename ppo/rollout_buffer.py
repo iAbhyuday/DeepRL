@@ -8,7 +8,7 @@ class RolloutBuffer(object):
         self.num_workers =hyperparams['num_workers'] 
         self.observation_shape = obs_shape  
         self.action_shape = action_shape   
-        self.is_gae = hyperparams['is_gae'] 
+        self.is_gae = hyperparams['gae'] 
         self.device = device
         self.lambda_ = hyperparams['lambda'] 
         self.gamma = hyperparams['gamma']
@@ -21,7 +21,7 @@ class RolloutBuffer(object):
 
         gae = 0.0 
         delta = 0.0
-        if self.i_gae:
+        if self.is_gae:
             for t in reversed(range(self.time_steps)):
 
                 if t==self.time_steps-1:

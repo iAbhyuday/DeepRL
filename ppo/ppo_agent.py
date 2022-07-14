@@ -10,9 +10,9 @@ from collections import namedtuple, deque
 from torch.utils.tensorboard import SummaryWriter
 
 
-class Agent(nn.Module):
-    def __init__(self, env: gym.vector.AsyncVectorEnv) -> None:
-        super(Agent, self).__init__()
+class PPOAgent(nn.Module):
+    def __init__(self, env: gym.vector.AsyncVectorEnv, **config) -> None:
+        super(PPOAgent, self).__init__()
         
         self.env = env
 
@@ -20,14 +20,15 @@ class Agent(nn.Module):
             True if type(self.env.single_action_space) == gym.spaces.Box else False
         )
 
-        self.config = json.load("config.json")
+        self.config = config
 
         self.gamma = self.config["gamma"]
         self.tau = self.config["tau"]
         self.clip = self.config["clip"]
-        self.hidden = self.config["hidden"]
+        self.hidden_units = self.config["hidden_units"]
         self.decay_std_rate = self.config["action_std_decay_rate"] 
         self.action_std_min = self.config["action_std_min"]
+        self.std_decay = self.config['std_decay']
 
         self.device = torch.device(
             "cuda:0" if torch.cuda.is_available() and self.config["cuda"] else "cpu"
@@ -49,46 +50,46 @@ class Agent(nn.Module):
         
         if self.is_continuous:
             self.actor = nn.Sequential(
-                        nn.Linear(np.array(self.obs_space).prod(),self.hidden),
+                        nn.Linear(np.array(self.obs_space).prod(),self.hidden_units),
                         nn.Tanh(),
-                        nn.Linear(self.hidden,2*self.hidden),
+                        nn.Linear(self.hidden_units,2*self.hidden_units),
                         nn.Tanh(),
-                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.Linear(2*self.hidden_units,self.hidden_units),
                         nn.Tanh(),
-                        nn.Linear(self.hidden,np.array(self.action_space).prod()), 
+                        nn.Linear(self.hidden_units,np.array(self.action_space).prod()), 
                         nn.Tanh()
                         ).to(self.device)    
 
         else:
 
             self.actor = nn.Sequential(
-                        nn.Linear(np.array(self.obs_space).prod(),self.hidden),
+                        nn.Linear(np.array(self.obs_space).prod(),self.hidden_units),
                         nn.Tanh(),
-                        nn.Linear(self.hidden,2*self.hidden),
+                        nn.Linear(self.hidden_units,2*self.hidden_units),
                         nn.Tanh(),
-                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.Linear(2*self.hidden_units,self.hidden_units),
                         nn.Tanh(),
-                        nn.Linear(self.hidden,np.array(self.action_space).prod()), 
+                        nn.Linear(self.hidden_units,np.array(self.action_space).prod()), 
                         nn.Softmax()
                         ).to(self.device)
 
         self.critic_local = nn.Sequential(
-                        nn.Linear(np.array(self.obs_space).prod(),2*self.hidden),
+                        nn.Linear(np.array(self.obs_space).prod(),2*self.hidden_units),
                         nn.ReLU(),
-                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.Linear(2*self.hidden_units,self.hidden_units),
                         nn.ReLU(),
-                        nn.Linear(self.hidden,1)
+                        nn.Linear(self.hidden_units,1)
                         ).to(self.device) 
 
         self.critic_target = nn.Sequential(
-                        nn.Linear(np.array(self.obs_space).prod(),2*self.hidden),
+                        nn.Linear(np.array(self.obs_space).prod(),2*self.hidden_units),
                         nn.ReLU(),
-                        nn.Linear(2*self.hidden,self.hidden),
+                        nn.Linear(2*self.hidden_units,self.hidden_units),
                         nn.ReLU(),
-                        nn.Linear(self.hidden,1)
+                        nn.Linear(self.hidden_units,1)
                         ).to(self.device) 
 
-        if self.config["decay_std"] and self.is_continuous:
+        if self.is_continuous:
             self.action_std = self.config["action_std_max"]
             self.set_action_var()
 
@@ -102,7 +103,7 @@ class Agent(nn.Module):
 
 
     def set_action_var(self):
-        self.action_var = torch.full((self.action_space,),self.action_std**2).to(self.device)
+        self.action_var = torch.full((self.action_space[0],),self.action_std**2).to(self.device)
 
 
 
@@ -148,9 +149,10 @@ class Agent(nn.Module):
     
     
     def decay_std(self):
-        self.std = self.std - self.decay_std_rate
-        if(self.std <= self.action_std_min):
-            self.std = self.action_std_min
+        self.action_std = self.action_std - self.decay_std_rate
+        if(self.action_std <= self.action_std_min):
+            self.action_std = self.action_std_min
+        print('New std : {}'.format(self.action_std))
         self.set_action_var()
     
 
@@ -250,6 +252,10 @@ class Agent(nn.Module):
                 
                 next_obs, next_done = torch.Tensor(next_obs).to(self.device), torch.Tensor(next_done).to(self.device)
                 self.time_steps += self.config['num_workers']
+
+                if self.std_decay and self.time_steps%self.config['action_std_decay_freq']==0:
+                    print('Decaying std ...')
+                    self.decay_std()
                 
                 for item in info:
 
@@ -275,15 +281,14 @@ class Agent(nn.Module):
 
             self.buffer.compute_gae(next_value, next_done)
 
-            #print(f"Sample collected: {self.buffer.states.shape[0]}")
-
+            
         # TODO:
         # 1. Add experiences to Rollout buffer
         # 2. Complete Rollout minibatch function
         # 3. Try prioritized rollout
 
     def train(self):
-        score = 0.0
+        
         while self.time_steps <= self.config['max_time_steps']:
 
             self.evaluate()
