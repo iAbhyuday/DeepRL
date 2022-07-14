@@ -2,13 +2,17 @@ import torch
 
 class RolloutBuffer(object):
 
-    def __init__(self, max_size=8000, observation_shape=None, action_shape=None,device=None, **kwargs): -> None:
-        
-        self.time_steps = max_size 
-        self.num_workers = num_workers 
-        self.observation_shape = observation_shape 
+    def __init__(self,obs_shape, action_shape, device: torch.DeviceObjType, **hyperparams) -> None:
+
+        self.time_steps = hyperparams['ppo_eval_steps'] 
+        self.num_workers =hyperparams['num_workers'] 
+        self.observation_shape = obs_shape  
         self.action_shape = action_shape   
-        self.is_gae = gae 
+        self.is_gae = hyperparams['is_gae'] 
+        self.device = device
+        self.lambda_ = hyperparams['lambda'] 
+        self.gamma = hyperparams['gamma']
+
 
         
         self.clear() 
@@ -21,13 +25,13 @@ class RolloutBuffer(object):
             for t in reversed(range(self.time_steps)):
 
                 if t==self.time_steps-1:
-                    delta = self.rewards[t] + gamma * next_done * next_value - self.values[t]
-                    gae = delta + gamma * lambda_ * next_done * gae
+                    delta = self.rewards[t] + self.gamma * next_done * next_value - self.values[t]
+                    gae = delta + self.gamma * self.lambda_ * next_done * gae
                 else:
 
-                    delta = self.rewards[t] + gamma* self.dones[t+1]*self.values[t+1] - self.values[t] 
+                    delta = self.rewards[t] + self.gamma* self.dones[t+1]*self.values[t+1] - self.values[t] 
 
-                    gae = delta + gamma * lambda_ * self.dones[t+1] * gae 
+                    gae = delta + self.gamma * self.lambda_ * self.dones[t+1] * gae 
 
                 self.gae[t] = gae 
         
@@ -37,7 +41,13 @@ class RolloutBuffer(object):
         else:
             r = 0.0
             for t in reversed(range(self.time_steps)):
-                r = self.rewards[t]  + self.gamma * self.dones[t+1] * self.valuest[t+1] - self.values[t]
+                if t==self.timesteps - 1:
+                    self.returns[t]= self.rewards[t]  + self.gamma * next_done * next_value
+                else:
+                    self.returns[t] = self.rewards[t]  + self.gamma * self.dones[t+1] * self.returns[t+1]
+            
+            self.gae = self.returns - self.values
+
                 
 
 
@@ -71,13 +81,13 @@ class RolloutBuffer(object):
             yield mb_states, mb_actions, mb_logprobs, mb_returns, mb_dones, mb_values, mb_gae  
 
     def clear(self):
-        self.states = torch.zeros((self.time_steps, self.num_workers,) + self.observation_shape).to(device) 
-        self.actions = torch.zeros((self.time_steps, self.num_workers,) + self.action_shape).to(device)
-        self.log_probs = torch.zeros((self.time_steps, self.num_workers)).to(device) 
-        self.rewards = torch.zeros((self.time_steps, self.num_workers)).to(device)
-        self.dones = torch.zeros((self.time_steps, self.num_workers)).to(device)
-        self.values = torch.zeros((self.time_steps, self.num_workers)).to(device) 
+        self.states = torch.zeros((self.time_steps, self.num_workers,) + self.observation_shape).to(self.device) 
+        self.actions = torch.zeros((self.time_steps, self.num_workers,) + self.action_shape).to(self.device)
+        self.log_probs = torch.zeros((self.time_steps, self.num_workers)).to(self.device) 
+        self.rewards = torch.zeros((self.time_steps, self.num_workers)).to(self.device)
+        self.dones = torch.zeros((self.time_steps, self.num_workers)).to(self.device)
+        self.values = torch.zeros((self.time_steps, self.num_workers)).to(self.device) 
 
-        self.gae = torch.zeros((self.time_steps, self.num_workers)).to(device) 
-        self.returns = torch.zeros((self.time_steps, self.num_workers)).to(device)
+        self.gae = torch.zeros((self.time_steps, self.num_workers)).to(self.device) 
+        self.returns = torch.zeros((self.time_steps, self.num_workers)).to(self.device)
 

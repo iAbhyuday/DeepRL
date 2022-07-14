@@ -37,7 +37,9 @@ class Agent(nn.Module):
         self.action_space = self.env.single_action_space.shape
 
         self.buffer = RolloutBuffer(
-            observation_shape=self.obs_space, action_shape=self.action_space, device=self.device,
+            obs_shape=self.obs_space,
+            action_shape=self.action_space,
+            device=self.device, 
             **self.config
         )
 
