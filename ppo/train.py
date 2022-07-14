@@ -9,7 +9,8 @@ def asyncEnvs(env_id):
     def make_env():
         env = gym.make(env_id)    
         env = gym.wrappers.RecordEpisodeStatistics(env) 
-        env = gym.wrappers.ClipAction(env) 
+        if type(env.action_space) == gym.spaces.Box:
+            env = gym.wrappers.ClipAction(env) 
         #env = gym.wrappers.NormalizeObservation(env)
         #env = gym.wrappers.TransformObservation(env, lambda obs:np.clip(obs,-10,10))
         #env = gym.wrappers.NormalizeReward(env) 
