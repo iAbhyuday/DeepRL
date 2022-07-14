@@ -283,9 +283,16 @@ class PPOAgent(nn.Module):
 
             
         # TODO:
-        # 1. Add experiences to Rollout buffer
-        # 2. Complete Rollout minibatch function
-        # 3. Try prioritized rollout
+        # 1. Value clipping
+        # 2. KL penalty
+        # 3. grad clipping
+        # 4. lr annealing 
+        # 5. early stopping criterion
+        # 6. episode metric 
+        # 7. model saving 
+        # 8. wandb integration
+        # 9. save env gifs
+
 
     def train(self):
         
