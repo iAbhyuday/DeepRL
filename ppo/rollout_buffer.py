@@ -36,7 +36,7 @@ class RolloutBuffer(object):
                 self.gae[t] = gae 
         
             self.returns = self.gae + self.values 
-            #self.gae = (self.gae - self.gae.mean())/(self.gae.std() + 1e-5) 
+            self.gae = (self.gae - self.gae.mean())/(self.gae.std() + 1e-5) 
 
         else:
             r = 0.0

@@ -1,9 +1,10 @@
+#%%
 import gym 
 import json
 import argparse
 from ppo_agent import PPOAgent 
 
-
+#%%
 
 def asyncEnvs(env_id):
     def make_env():
@@ -23,7 +24,7 @@ def asyncEnvs(env_id):
         return env
     return make_env
 
-
+#%%
 if __name__== '__main__':
     
     config = None 
@@ -33,8 +34,16 @@ if __name__== '__main__':
     envs = [asyncEnvs(config['env_id']) for i in range(config['num_workers'])]
     
     env = gym.vector.AsyncVectorEnv(envs)
+#%%
+    #ppo_agent = PPOAgent(env, **config)
+    #ppo_agent.train()
 
-    ppo_agent = PPOAgent(env, **config)
-    ppo_agent.train()
+state = env.reset()
+info = None
+for i in range(1000):
 
-    
+    action = env.action_space.sample()
+    next_state, reward, done,info = env.step(action)
+    state = next_state
+
+# %%

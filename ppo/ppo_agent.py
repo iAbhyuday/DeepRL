@@ -1,3 +1,5 @@
+from cmath import log
+import os
 import gym
 import json
 import torch
@@ -102,6 +104,8 @@ class PPOAgent(nn.Module):
 
         if self.config["lr_decay"]:
             self.num_updates=0
+        self.num_episodes = 0 
+        self.early_stopped = False
 
 
 
@@ -232,7 +236,15 @@ class PPOAgent(nn.Module):
 
                 v_loss = mse_loss(new_values, mb_returns.to(torch.float32)).mean()
 
-                ratio = (new_log_probs - mb_log_probs).exp()
+                logratio = (new_log_probs - mb_log_probs)
+                ratio = logratio.exp()
+                
+                kl = ((ratio - 1.0) - logratio).mean()
+                if kl > 1.5 * self.config['target_kl']:
+                    self.early_stopped = True
+                    break 
+
+                
 
                 surrogate_function = ratio * mb_adv
                 cliped_surr = torch.clamp(ratio, 1 - self.clip, 1 + self.clip) * mb_adv
@@ -277,6 +289,7 @@ class PPOAgent(nn.Module):
 
                 self.buffer.states[t] = next_obs
                 self.buffer.dones[t] = 1 - next_done
+                self.num_episode += sum(next_done)
 
                 dist, value = self.forward(next_obs)
                 action = dist.sample()
@@ -295,6 +308,7 @@ class PPOAgent(nn.Module):
                 
                 next_obs, next_done = torch.Tensor(next_obs).to(self.device), torch.Tensor(next_done).to(self.device)
                 self.time_steps += self.config['num_workers']
+                
 
                 if self.std_decay and self.time_steps%self.config['action_std_decay_freq']==0:
                     print('Decaying std ...')
@@ -324,22 +338,35 @@ class PPOAgent(nn.Module):
 
             self.buffer.compute_gae(next_value, next_done)
 
+
+    def save(self,root='models'):
+
+        actor_file_name=  self.config['experiment_name']+'_ACTOR.pt'
+        critic_file_name= self.config['experiment_name']+'_CRITIC.pt'
+
+        torch.save(self.actor, os.path.join(root,actor_file_name))
+        torch.save(self.critic, os.path.join(root,critic_file_name))
+
+
+        
+
             
         # TODO:
     
         # 2. KL penalty
     
         # 5. early stopping criterion
-        # 6. episode metric 
-        # 7. model saving 
+    
+
         # 8. wandb integration
         # 9. save env gifs
 
 
     def train(self):
         
-        while self.time_steps <= self.config['max_time_steps']:
+        while not self.early_stopped:
 
             self.evaluate()
             self.update()
             self.buffer.clear()
+        self.save()

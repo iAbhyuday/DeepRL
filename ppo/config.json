@@ -53,6 +53,8 @@
 
     "clip_value" : true,
 
+    "target_kl" : 0.05,
+
     "value_loss_clip" : 0.2,
 
     "max_time_steps" : 1.6e6,
