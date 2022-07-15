@@ -25,6 +25,12 @@
 
     "std_decay" : true,
 
+    "lr_decay" : true,
+
+    "lr_decay_freq" : 1e5,
+
+    "max_lr" : 2.5e-4,
+
     "actor_lr" : 2.5e-4,
 
     "critic_lr": 2.5e-4, 
@@ -44,6 +50,8 @@
     "normalize_rewards" : true,
 
     "max_grad_norm" : 0.5, 
+
+    "clip_value" : true,
 
     "value_loss_clip" : 0.2,
 

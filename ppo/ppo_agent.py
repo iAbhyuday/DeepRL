@@ -35,7 +35,8 @@ class PPOAgent(nn.Module):
         )
 
         self.obs_space = self.env.single_observation_space.shape
-        self.action_space = self.env.single_action_space.shape
+        
+        self.action_space = self.env.single_action_space.shape if self.is_continuous else (self.env.single_action_space.n,)
 
         self.buffer = RolloutBuffer(
             obs_shape=self.obs_space,
@@ -61,7 +62,7 @@ class PPOAgent(nn.Module):
                         ).to(self.device)    
 
         else:
-
+            
             self.actor = nn.Sequential(
                         nn.Linear(np.array(self.obs_space).prod(),self.hidden_units),
                         nn.Tanh(),
@@ -98,6 +99,9 @@ class PPOAgent(nn.Module):
             { 'params' : self.actor.parameters(), 'lr' : self.config['actor_lr'], 'eps': 1e-5},
             { 'params' : self.critic_local.parameters(), 'lr' : self.config['critic_lr'], 'eps': 1e-5}
         ])
+
+        if self.config["lr_decay"]:
+            self.num_updates=0
 
 
 
@@ -154,7 +158,18 @@ class PPOAgent(nn.Module):
             self.action_std = self.action_std_min
         print('New std : {}'.format(self.action_std))
         self.set_action_var()
+
     
+    def decay_lr(self, epoch_num):
+        frac = 1/(1 + 0.95*epoch_num)
+        new_lr = self.config['max_lr'] * frac 
+
+        if(new_lr <= self.config['min_lr']):
+            new_lr = self.config['min_lr']
+
+        self.opt.param_groups[0]["lr"] = new_lr 
+
+
 
 
     def critic_update(self):
@@ -167,9 +182,15 @@ class PPOAgent(nn.Module):
 
 
     def update(self):
+        if self.config['lr_decay']:
+            self.num_steps+=1 
+
+            if self.num_steps%self.config['lr_decay_freq']==0:
+                self.decay_lr(self.num_steps//(self.config['num_workers'] *self.config['ppo_eval_steps']))
 
         for e in range(self.config['ppo_epochs_per_update']):
 
+            
             for (
                 mb_states,
                 mb_actions,
@@ -193,7 +214,23 @@ class PPOAgent(nn.Module):
 
                 # break
 
-                critic_loss = mse_loss(new_values, mb_returns.to(torch.float32)).mean()
+
+                if self.config['clip_value']:
+                    v_loss_unclipped = (new_values - mb_returns) **2 
+                    v_clipped = mb_values + torch.clamp(new_values - mb_values,-self.clip, self.clip) 
+
+                    v_loss_clipped = (v_clipped - mb_returns)**2 
+                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+
+                    v_loss = v_loss_max.mean() 
+                else:
+                    v_loss = ((new_values - mb_returns) **2).mean() 
+
+
+
+
+
+                v_loss = mse_loss(new_values, mb_returns.to(torch.float32)).mean()
 
                 ratio = (new_log_probs - mb_log_probs).exp()
 
@@ -202,12 +239,18 @@ class PPOAgent(nn.Module):
 
                 actor_loss = torch.min(surrogate_function, cliped_surr).mean()
 
-                loss = -actor_loss + 0.5 * critic_loss - 0.01 * entropy
+                loss = -actor_loss + 0.5 * v_loss - 0.01 * entropy
 
                 
                 self.opt.zero_grad()
 
                 loss.backward()
+                if self.config['max_grad_norm']:
+                    nn.utils.clip_grad_norm([
+                          { 'params' : self.actor.parameters()},
+                          { 'params' : self.critic_local.parameters()}
+                    ],
+                    self.config['max_grad_norm']) 
 
                 self.opt.step()
                 
@@ -216,7 +259,7 @@ class PPOAgent(nn.Module):
             self.critic_update()
 
         self.writer.add_scalar(
-            "losses/critic_loss", critic_loss.item(), self.time_steps
+            "losses/critic_loss", v_loss.item(), self.time_steps
         )
         self.writer.add_scalar("losses/actor_loss", actor_loss.item(), self.time_steps)
         self.writer.add_scalar("losses/loss", loss.item(), self.time_steps)
@@ -283,10 +326,9 @@ class PPOAgent(nn.Module):
 
             
         # TODO:
-        # 1. Value clipping
+    
         # 2. KL penalty
-        # 3. grad clipping
-        # 4. lr annealing 
+    
         # 5. early stopping criterion
         # 6. episode metric 
         # 7. model saving 
