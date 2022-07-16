@@ -35,15 +35,9 @@ if __name__== '__main__':
     
     env = gym.vector.AsyncVectorEnv(envs)
 #%%
-    #ppo_agent = PPOAgent(env, **config)
-    #ppo_agent.train()
+    ppo_agent = PPOAgent(env, **config)
+    ppo_agent.train()
 
-state = env.reset()
-info = None
-for i in range(1000):
 
-    action = env.action_space.sample()
-    next_state, reward, done,info = env.step(action)
-    state = next_state
 
 # %%

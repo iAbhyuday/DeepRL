@@ -6,10 +6,15 @@ import torch
 import random
 import numpy as np
 import torch.nn as nn
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from matplotlib import animation
 from rollout_buffer import RolloutBuffer
 from torch.nn.functional import mse_loss
 from collections import namedtuple, deque
 from torch.utils.tensorboard import SummaryWriter
+
+
 
 
 class PPOAgent(nn.Module):
@@ -106,6 +111,7 @@ class PPOAgent(nn.Module):
             self.num_updates=0
         self.num_episodes = 0 
         self.early_stopped = False
+        self.beta=0.1
 
 
 
@@ -187,12 +193,12 @@ class PPOAgent(nn.Module):
 
     def update(self):
         if self.config['lr_decay']:
-            self.num_steps+=1 
+            self.num_updates+=1 
 
-            if self.num_steps%self.config['lr_decay_freq']==0:
-                self.decay_lr(self.num_steps//(self.config['num_workers'] *self.config['ppo_eval_steps']))
+            if self.num_updates%self.config['lr_decay_freq']==0:
+                self.decay_lr(self.num_updates//(self.config['num_workers'] *self.config['ppo_eval_steps']))
 
-        for e in range(self.config['ppo_epochs_per_update']):
+        for e in tqdm(range(self.config['ppo_epochs_per_update'])):
 
             
             for (
@@ -240,28 +246,30 @@ class PPOAgent(nn.Module):
                 ratio = logratio.exp()
                 
                 kl = ((ratio - 1.0) - logratio).mean()
-                if kl > 1.5 * self.config['target_kl']:
-                    self.early_stopped = True
-                    break 
-
-                
+                if self.config["kl_penalty"]:
+                    if kl>1.5*self.config['target_kl']:
+                        self.beta = self.beta*2
+                    else:
+                        self.beta = self.beta/2
+                else:
+                    self.beta = 0.0
+           
 
                 surrogate_function = ratio * mb_adv
                 cliped_surr = torch.clamp(ratio, 1 - self.clip, 1 + self.clip) * mb_adv
 
                 actor_loss = torch.min(surrogate_function, cliped_surr).mean()
-
-                loss = -actor_loss + 0.5 * v_loss - 0.01 * entropy
+                
+                
+                loss = -actor_loss + 0.5 * v_loss - 0.01 * entropy + self.beta*kl
 
                 
                 self.opt.zero_grad()
 
                 loss.backward()
                 if self.config['max_grad_norm']:
-                    nn.utils.clip_grad_norm([
-                          { 'params' : self.actor.parameters()},
-                          { 'params' : self.critic_local.parameters()}
-                    ],
+                    nn.utils.clip_grad_norm(
+                        self.actor.parameters(),
                     self.config['max_grad_norm']) 
 
                 self.opt.step()
@@ -275,11 +283,13 @@ class PPOAgent(nn.Module):
         )
         self.writer.add_scalar("losses/actor_loss", actor_loss.item(), self.time_steps)
         self.writer.add_scalar("losses/loss", loss.item(), self.time_steps)
+        self.writer.add_scalar("charts/kl_divergence",kl.item(), self.time_steps)
+
 
     
     
     def evaluate(self):
-
+        score_window = deque(maxlen=10)
         with torch.no_grad():
             
             next_obs = torch.Tensor(self.env.reset()).to(self.device)
@@ -289,7 +299,7 @@ class PPOAgent(nn.Module):
 
                 self.buffer.states[t] = next_obs
                 self.buffer.dones[t] = 1 - next_done
-                self.num_episode += sum(next_done)
+                self.num_episodes += sum(next_done)
 
                 dist, value = self.forward(next_obs)
                 action = dist.sample()
@@ -317,13 +327,18 @@ class PPOAgent(nn.Module):
                 for item in info:
 
                     if "episode" in item.keys():
-                        print(
-                            f"global_step = {self.time_steps}, episodic_return = {item['episode']['r']}"
+                        
+                        score_window.append(item['episode']['r'])
+                        self.writer.add_scalar(
+                            "charts/avg_return",
+                            item["episode"]["r"],
+                            self.time_steps,
                         )
+
                         self.writer.add_scalar(
                             "charts/episodic_return",
                             item["episode"]["r"],
-                            self.time_steps,
+                            self.num_episodes,
                         )
                         self.writer.add_scalar(
                             "charts/episodic_length",
@@ -332,7 +347,9 @@ class PPOAgent(nn.Module):
                         )
 
                         break
-
+            print(f'Episodes: {self.num_episodes}\t Mean Score: {np.mean(score_window)}')
+            if np.mean(score_window) >= 300:
+                self.early_stopped = True
             next_value = self.critic_local(next_obs).flatten()
             next_done = 1 - next_done
 
@@ -351,11 +368,7 @@ class PPOAgent(nn.Module):
         
 
             
-        # TODO:
     
-        # 2. KL penalty
-    
-        # 5. early stopping criterion
     
 
         # 8. wandb integration

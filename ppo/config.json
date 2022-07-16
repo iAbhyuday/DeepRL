@@ -1,7 +1,7 @@
 {   
-    "experiment_name": "Cartpole" ,
+    "experiment_name": "LunarLander-v2-kl" ,
     
-    "env_id" : "CartPole-v1", 
+    "env_id" : "LunarLanderContinuous-v2", 
 
     "cuda" : true,
 
@@ -25,9 +25,9 @@
 
     "std_decay" : true,
 
-    "lr_decay" : true,
+    "lr_decay" : false,
 
-    "lr_decay_freq" : 1e5,
+    "lr_decay_freq" : 8,
 
     "max_lr" : 2.5e-4,
 
@@ -39,7 +39,7 @@
 
     "hidden_units" : 64,
 
-    "action_std_max" : 0.8, 
+    "action_std_max" : 0.5, 
 
     "action_std_decay_rate" : 0.05,
 
@@ -52,6 +52,8 @@
     "max_grad_norm" : 0.5, 
 
     "clip_value" : true,
+
+    "kl_penalty" : true,
 
     "target_kl" : 0.05,
 
