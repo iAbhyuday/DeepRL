@@ -242,8 +242,6 @@ class PPOAgent(nn.Module):
 
 
 
-
-
                 v_loss = mse_loss(new_values, mb_returns.to(torch.float32)).mean()
 
                 logratio = (new_log_probs - mb_log_probs)
@@ -370,7 +368,17 @@ class PPOAgent(nn.Module):
 
         
     def wandb_init(self):
-        pass
+        import wandb
+        
+        wandb.init(
+            project= f'PPO_{self.config["env_id"]}',
+            entity= self.config['wandb_entity_name'], 
+            sync_tensorboard=True,
+            config = vars(self.config),
+            name= self.config['experiment_name'],
+            monitor_gym=True,
+            save_code=True
+        )
 
 
     def test_agent(self,episodes=5):

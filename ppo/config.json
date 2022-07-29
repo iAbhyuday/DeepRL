@@ -67,6 +67,6 @@
 
     "tensorboard_dir" : "runs",
 
-    "wandb_project_name" : ""
+    "wandb_entity_name" : ""
 
 }
