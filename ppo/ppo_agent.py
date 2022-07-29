@@ -112,7 +112,13 @@ class PPOAgent(nn.Module):
             self.num_updates=0
         self.num_episodes = 0 
         self.early_stopped = False
-        self.beta=0.1
+        if not self.config['kl_penalty']:
+            self.beta = 0
+        else:
+            self.beta = self.config["beta"]
+
+        if(self.config["wandb"]):
+            self.wandb_init()
 
 
 
@@ -136,6 +142,8 @@ class PPOAgent(nn.Module):
         if self.is_continuous:
             cov_mat = torch.diag(self.action_var).unsqueeze(0).to(self.device)
             dist = torch.distributions.MultivariateNormal(logits, cov_mat)
+            if self.action_space == 1:
+                action = action.reshape(-1, self.action_space)
         else:
             
             dist = torch.distributions.Categorical(probs=logits)

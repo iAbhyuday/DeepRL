@@ -57,7 +57,9 @@
 
     "kl_penalty" : true,
 
-    "target_kl" : 0.05,
+    "beta"  :  0.5,
+
+    "target_kl" : 1.5,
 
     "value_loss_clip" : 0.2,
 
@@ -67,6 +69,9 @@
 
     "tensorboard_dir" : "runs",
 
+    "wandb" : false,
+
+    
     "wandb_entity_name" : ""
 
 }
