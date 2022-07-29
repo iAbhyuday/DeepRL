@@ -4,8 +4,10 @@ import json
 import torch
 import random
 import numpy as np
+from PIL import Image
 import torch.nn as nn
 from tqdm import tqdm
+import termtables as tt
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from rollout_buffer import RolloutBuffer
@@ -42,7 +44,7 @@ class PPOAgent(nn.Module):
 
         self.obs_space = self.env.single_observation_space.shape
         
-        self.action_space = self.env.single_action_space.shape if self.is_continuous else (self.env.single_action_space.n,)
+        self.action_space = self.env.single_action_space.shape if self.is_continuous else (1,)
 
         self.buffer = RolloutBuffer(
             obs_shape=self.obs_space,
@@ -76,8 +78,8 @@ class PPOAgent(nn.Module):
                         nn.Tanh(),
                         nn.Linear(2*self.hidden_units,self.hidden_units),
                         nn.Tanh(),
-                        nn.Linear(self.hidden_units,np.array(self.action_space).prod()), 
-                        nn.Softmax()
+                        nn.Linear(self.hidden_units,self.env.single_action_space.n), 
+                        nn.Softmax(dim=-1)
                         ).to(self.device)
 
         self.critic_local = nn.Sequential(
@@ -135,7 +137,8 @@ class PPOAgent(nn.Module):
             cov_mat = torch.diag(self.action_var).unsqueeze(0).to(self.device)
             dist = torch.distributions.MultivariateNormal(logits, cov_mat)
         else:
-            dist = torch.distributions.Categorical(logits=logits)
+            
+            dist = torch.distributions.Categorical(probs=logits)
         return dist, value
         
 
@@ -154,8 +157,10 @@ class PPOAgent(nn.Module):
             log_probs = dist.log_prob(mb_actions)
             
         else:
-            dist = torch.distributions.Categorical(logits=logits)
-            log_probs = dist.log_prob(mb_actions)
+        
+            dist = torch.distributions.Categorical(probs=logits)
+            log_probs = dist.log_prob(mb_actions.view(-1))
+            
         
         return values, log_probs, dist.entropy().mean()
 
@@ -217,7 +222,7 @@ class PPOAgent(nn.Module):
                 # print(f'actions shape : {mb_actions.shape}')
                 # print(f'new log_probs shape : {new_log_probs.shape}')
                 # print(f'old log_probs shape : {mb_log_probs.shape}')
-                # print(f'ADV shape : {mb_gae.shape}')
+                # print(f'ADV shape : {mb_adv.shape}')
                 # print(f'New values shape : {new_values.shape}')
                 # print(f'Returns shape : {mb_returns.shape}')
 
@@ -260,7 +265,7 @@ class PPOAgent(nn.Module):
                 actor_loss = torch.min(surrogate_function, cliped_surr).mean()
                 
                 
-                loss = -actor_loss + 0.5 * v_loss - 0.01 * entropy + self.beta*kl
+                loss = -actor_loss + 0.5 * v_loss - 0.01 * entropy 
 
                 
                 self.opt.zero_grad()
@@ -302,13 +307,21 @@ class PPOAgent(nn.Module):
 
                 dist, value = self.forward(next_obs)
                 action = dist.sample()
+                
                 log_prob = dist.log_prob(action)
+                
             
                 value = value.flatten()
-
-                self.buffer.actions[t] = action
+                if not self.is_continuous:
+                    self.buffer.actions[t] = action.unsqueeze(-1)
+                    
+                else:    
+                    self.buffer.actions[t] = action
                 self.buffer.log_probs[t] = log_prob
+                
+                
                 self.buffer.values[t] = value
+                
 
 
                 next_obs, reward, next_done, info = self.env.step(action.cpu().numpy())
@@ -319,7 +332,7 @@ class PPOAgent(nn.Module):
                 self.time_steps += self.config['num_workers']
                 
 
-                if self.std_decay and self.time_steps%self.config['action_std_decay_freq']==0:
+                if self.is_continuous and self.std_decay and self.time_steps%self.config['action_std_decay_freq']==0:
                     print('Decaying std ...')
                     self.decay_std()
                 
@@ -347,7 +360,7 @@ class PPOAgent(nn.Module):
 
                         break
             print(f'Episodes: {self.num_episodes}\t Mean Score: {np.mean(score_window)}')
-            if np.mean(score_window) >= 300:
+            if np.mean(score_window) >= self.config["max_score"]:
                 self.early_stopped = True
             next_value = self.critic_local(next_obs).flatten()
             next_done = 1 - next_done
@@ -355,25 +368,51 @@ class PPOAgent(nn.Module):
             self.buffer.compute_gae(next_value, next_done)
 
 
-    def save(self,root='models'):
-
-        actor_file_name=  self.config['experiment_name']+'_ACTOR.pt'
-        critic_file_name= self.config['experiment_name']+'_CRITIC.pt'
-
-        torch.save(self.actor, os.path.join(root,actor_file_name))
-        torch.save(self.critic, os.path.join(root,critic_file_name))
-
-
         
+    def wandb_init(self):
+        pass
 
+
+    def test_agent(self,episodes=5):
+        
+        env = gym.make(self.config['env_id'])
+        with torch.no_grad():
             
-    
-    
+            print(f'Testing ...')
+            header = ["Episode", "Length", "Score"]
+            records = []
+            images = []
+            score=0
+            for e in range(episodes):
+                state = env.reset() 
+                done = False 
+                t = 0
+                score = 0
+                while not done:
+                    state = torch.Tensor(state).to(self.device)
+                    dist, value = self.forward(state)
+                    action = dist.sample()
 
-        # 8. wandb integration
-        # 9. save env gifs
+                    next_obs, reward, done, info = env.step(action.cpu().numpy()) 
+
+                    state = next_obs 
+                    score+=reward
+                    t+=1 
+                    if(e==episodes-1):
+                        images.append(Image.fromarray(env.render(mode='rgb_array')))
+                records.append([e+1, score, t])
 
 
+            tt.print(records, header=header)
+            gif_path = os.path.join(self.config['experiment_dir'], self.config['experiment_name'],'gifs')
+            if not os.path.exists(gif_path):
+                os.makedirs(gif_path)
+            
+            # save the gif
+            images[0].save(os.path.join(gif_path,f'Episode_{int(self.num_episodes)}_{score}.gif'),\
+                                        format='GIF',save_all=True,optimize=True,append_images=images[1:],loop=0)
+                
+            
     def train(self):
         
         while not self.early_stopped:
@@ -381,4 +420,17 @@ class PPOAgent(nn.Module):
             self.evaluate()
             self.update()
             self.buffer.clear()
+        self.test_agent()
         self.save()
+
+
+    def save(self):
+        root = self.config['experiment_dir']
+        actor_file_name=  self.config['experiment_name']+'_ACTOR.pt'
+        critic_file_name= self.config['experiment_name']+'_CRITIC.pt'
+        if not os.path.exists(os.path.join(root,self.config["experiment_name"])):
+            os.makedirs(os.path.join(root,self.config["experiment_name"]))
+
+        torch.save(self.actor, os.path.join(root,self.config["experiment_name"],actor_file_name))
+        torch.save(self.critic_target, os.path.join(root,self.config["experiment_name"],critic_file_name))
+

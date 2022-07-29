@@ -41,7 +41,7 @@ class RolloutBuffer(object):
         else:
             r = 0.0
             for t in reversed(range(self.time_steps)):
-                if t==self.timesteps - 1:
+                if t==self.time_steps - 1:
                     self.returns[t]= self.rewards[t]  + self.gamma * next_done * next_value
                 else:
                     self.returns[t] = self.rewards[t]  + self.gamma * self.dones[t+1] * self.returns[t+1]

@@ -1,4 +1,5 @@
 #%%
+
 import gym 
 import json
 import argparse
@@ -34,9 +35,10 @@ if __name__== '__main__':
     envs = [asyncEnvs(config['env_id']) for i in range(config['num_workers'])]
     
     env = gym.vector.AsyncVectorEnv(envs)
-#%%
     ppo_agent = PPOAgent(env, **config)
     ppo_agent.train()
+
+
 
 
 
