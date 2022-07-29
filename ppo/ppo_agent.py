@@ -172,7 +172,6 @@ class PPOAgent(nn.Module):
             self.action_std = self.action_std_min
         else:
             print("Minimum std thresholhd reached.")
-        print('New std : {}'.format(self.action_std))
         self.set_action_var()
 
         
