@@ -137,6 +137,7 @@ class PPOAgent(nn.Module):
         Returns:
             torch.Tensor: The Q-value of the state
         """
+        
         logits = self.actor(state) 
         value = self.critic_target(state)
         if self.is_continuous:
@@ -257,14 +258,12 @@ class PPOAgent(nn.Module):
                 ratio = logratio.exp()
                 
                 kl = ((ratio - 1.0) - logratio).mean()
-                if self.config["kl_penalty"]:
-                    if kl>1.5*self.config['target_kl']:
-                        self.beta = self.beta*2
-                    else:
-                        self.beta = self.beta/2
+                
+                
+                if kl > 1.5*self.config['target_kl']:
+                    self.beta = self.beta*2
                 else:
-                    self.beta = 0.0
-           
+                    self.beta = self.beta/2
 
                 surrogate_function = ratio * mb_adv
                 cliped_surr = torch.clamp(ratio, 1 - self.clip, 1 + self.clip) * mb_adv
@@ -272,7 +271,7 @@ class PPOAgent(nn.Module):
                 actor_loss = torch.min(surrogate_function, cliped_surr).mean()
                 
                 
-                loss = -actor_loss + 0.5 * v_loss - 0.01 * entropy 
+                loss = -actor_loss + 0.5 * v_loss - 0.01 * entropy + self.beta * kl
 
                 
                 self.opt.zero_grad()
