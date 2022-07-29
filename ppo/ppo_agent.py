@@ -15,7 +15,7 @@ from torch.nn.functional import mse_loss
 from collections import namedtuple, deque
 from torch.utils.tensorboard import SummaryWriter
 
-
+## FIX KL PENALTY
 
 
 class PPOAgent(nn.Module):
