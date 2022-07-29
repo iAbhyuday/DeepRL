@@ -15,7 +15,6 @@ from torch.nn.functional import mse_loss
 from collections import namedtuple, deque
 from torch.utils.tensorboard import SummaryWriter
 
-## FIX KL PENALTY
 
 
 class PPOAgent(nn.Module):
@@ -433,6 +432,7 @@ class PPOAgent(nn.Module):
                                         format='GIF',save_all=True,optimize=True,append_images=images[1:],loop=0)
                 
             
+    
     def train(self):
         
         while not self.early_stopped:
@@ -444,7 +444,9 @@ class PPOAgent(nn.Module):
         self.save()
 
 
+    
     def save(self):
+        
         root = self.config['experiment_dir']
         actor_file_name=  self.config['experiment_name']+'_ACTOR.pt'
         critic_file_name= self.config['experiment_name']+'_CRITIC.pt'

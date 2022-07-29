@@ -70,7 +70,6 @@
     "tensorboard_dir" : "runs",
 
     "wandb" : false,
-
     
     "wandb_entity_name" : ""
 
