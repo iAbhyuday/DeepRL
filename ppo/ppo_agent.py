@@ -170,10 +170,12 @@ class PPOAgent(nn.Module):
         self.action_std = self.action_std - self.decay_std_rate
         if(self.action_std <= self.action_std_min):
             self.action_std = self.action_std_min
+        else:
+            print("Minimum std thresholhd reached.")
         print('New std : {}'.format(self.action_std))
         self.set_action_var()
 
-    
+        
     def decay_lr(self, epoch_num):
         frac = 1/(1 + 0.95*epoch_num)
         new_lr = self.config['max_lr'] * frac 
@@ -331,8 +333,12 @@ class PPOAgent(nn.Module):
                 
 
                 if self.is_continuous and self.std_decay and self.time_steps%self.config['action_std_decay_freq']==0:
-                    print('Decaying std ...')
+                    old_std = self.action_std
+                    print("==========================")
                     self.decay_std()
+                    print(f'Decaying std  ( {old_std} -> {self.action_std})')
+                    print("==========================")
+                    
                 
                 for item in info:
 
